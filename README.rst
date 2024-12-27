@@ -13,7 +13,7 @@ mfm_ed_iv
 
 Simulates the course of an in vitro virus infection using an ODE model, a stochastic model (SM), or a mean-field version of the SM (MFSM) where random variables are replaced by their mean. The code includes a script showing how to estimate model parameters from viral titer measurements taken over the course of a virus infection using the raw outcomes (number of infected wells at each dilution) of an endpoint dilution (TCID50) assay. This project includes the code and data associated with |qtab24|_.
 
-.. image:: https://img.shields.io/badge/GitHub-cbeauc%2Fmfm_ed_iv-blue.svg?style=flat
+.. image:: https://img.shields.io/badge/GitHub-cbeauc/mfm%5Fed%5Fiv-blue.svg?style=flat
     :target: https://github.com/cbeauc/mfm_ed_iv
 .. image:: https://img.shields.io/badge/license-GPL-blue.svg?style=flat
     :target: https://github.com/cbeauc/mfm_ed_iv/blob/master/LICENSE
