@@ -1,0 +1,72 @@
+#!/usr/bin/env python
+# Copyright (C) 2024 Catherine Beauchemin <cbeau@users.sourceforge.net>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# =============================================================================
+import math
+import numpy
+import phymcmc.mcmc
+import scipy
+import sys
+
+def add_biological_params( pdic ):
+	biodic = dict()
+	if pdic['IV']: # if [V]=IV
+		biodic['gamma'] = numpy.sqrt(pdic['aiv']*pdic['biv'])
+		biodic['rho'] = numpy.sqrt(pdic['aiv']/pdic['biv'])
+		tpdic = dict(gamma=biodic['gamma'],rho=biodic['rho'],beta=pdic['beta'])
+		# lnPrior
+		biodic['lnprior'] = -numpy.log(pdic['aiv']*pdic['biv']*pdic['beta']*pdic['rho_rna'])
+	else: # if [V]=SIN
+		biodic['gamma'] = numpy.sqrt(pdic['asin']*pdic['bsin'])
+		biodic['beta'] = numpy.sqrt(pdic['asin']/pdic['bsin'])
+		tpdic = dict(gamma=biodic['gamma'],beta=biodic['beta'],rho=pdic['rho'])
+		# lnPrior SIN
+		biodic['lnprior'] = -numpy.log(pdic['asin']*pdic['bsin']*pdic['rho']*pdic['rho_rna'])
+	# gamma*beta in ml/([V].h) (to compare with past work)
+	biodic['gambet'] = tpdic['gamma']*tpdic['beta']
+	# Burst size
+	biodic['burst'] = tpdic['rho']*pdic['tauI']
+	# P_V->I = gamma / [ 1 + ( c / {beta*Ncells/Vol} ) ]
+	biodic['P_V2IED'] = tpdic['gamma'] / ( 1. + pdic['c']/(tpdic['beta']*pdic['NcellsED']/pdic['Vinoc']) )
+	biodic['P_V2Iinf'] = tpdic['gamma'] / ( 1. + pdic['c']/(tpdic['beta']*pdic['Ncells']/pdic['S']) )
+	if pdic['IV']:
+		# 0 = 1 - PVest/P_V->I - [p*tauI/nI PVest + 1]^{-nI}
+		f = lambda pvest,c1,c2,c3: 1. - pvest/c1 - (c2*pvest+1.)**c3
+		for vl in ('ED','inf'):
+			res = []
+			for c1,c2 in zip(biodic['P_V2I'+vl],biodic['burst']/pdic['nI']):
+				res.append( scipy.optimize.root(f,c1,args=(c1,c2,-pdic['nI'])).x )
+			biodic['PVest'+vl] = numpy.hstack(res)
+		# converts gamma*beta from ml/(IV.h) to ml/(SIN.h)
+		biodic['gambet'] /= biodic['PVestED']
+	else:
+		biodic['PVestED'] = 1.0
+		biodic['PVestinf'] = 1.0
+	# Basic reproductive number in ED and SC,MC infections
+	biodic['R0ED'] = biodic['P_V2IED'] * biodic['burst']
+	biodic['R0inf'] = biodic['P_V2Iinf'] * biodic['burst']
+	# Infecting time (h)
+	cor = 0.5*math.sqrt(math.pi) if pdic['SM'] else 1.0
+	biodic['tinfED'] = cor*numpy.sqrt(2./(tpdic['rho']*tpdic['gamma']*tpdic['beta']*pdic['NcellsED']/pdic['Vinoc']))
+	biodic['tinfinf'] = cor*numpy.sqrt(2./(tpdic['rho']*tpdic['gamma']*tpdic['beta']*pdic['Ncells']/pdic['S']))
+	# lnLike
+	biodic['lnlike'] = pdic['lnprob'] - biodic['lnprior']
+	return biodic
+
+# Read chain_file name from command-line (1st argument)
+chainfile = sys.argv[1]
+# Add biological params to chainfile
+phymcmc.mcmc.add_derived_dict_to_mcmc_chain( add_biological_params, chainfile )

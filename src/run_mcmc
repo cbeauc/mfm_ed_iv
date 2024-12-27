@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+import estimator
+import multiprocessing
+import phymcmc.mcmc
+import sys
+
+# MCMC parameters
+mcpars = dict(
+	nwalkers = 300,
+	nsteps = 10000,
+	linpars = ['lnprob','tauE','tauI','RNseed'],
+)
+
+# Directory that holds the data (adjust as needed)
+data_dir = 'data/'
+# Chains directory (adjust as needed)
+chain_dir = 'chains/'
+
+# Use old chain file (give file name as argument) or
+#	create new one (give model choice as argument)
+if '.hdf5' in sys.argv[1]: # old chain
+	old_chain = sys.argv[1]
+	choice = old_chain[max(old_chain.find('sm'),old_chain.find('mfm')):max(old_chain.find('sin')+3,old_chain.find('iv')+2)]
+	newversion = int( old_chain.split('-v')[-1].split('.hdf5')[0] )+1
+	new_chain = '%s-v%02d.hdf5' % (old_chain.split('-v')[0], newversion)
+else: # new chain (start new chain from end of old chain)
+	# What model instance to run (mfm|sm_ssr|ed_sin|iv)
+	#	will also be used in chain name.
+	#	e.g.	choice = 'sm_ed_iv' or 'mfm_ed_sin', ...
+	choice = sys.argv[1]
+	old_chain = None
+	# Pick name and saving location of chainfile
+	new_chain = chain_dir + f'qtab24_{choice}-v00.hdf5'
+
+if True:
+	pdic = estimator.base_params_dict.copy()
+	pdic['SM'] = 'sm_' in choice
+	pdic['LikeED'] = '_ed_' in choice
+	pdic['IV'] = '_iv' in choice
+	# Pick permitted parameter values based on the units chosen
+	if pdic['IV']:
+		# Rate of virus entry into cells
+		pdic['beta'] = 10.**-6.8 # ml / (cell * h)
+		# Number of cell infected per V entry into cell
+		pdic['gamma'] = 10.**-0.68 # cell per IV
+	else:
+		# Rate of virus entry into cells
+		pdic['beta'] = 10.**-9 # ml / (cell * h)
+		# Number of cell infected per V entry into cell
+		pdic['gamma'] = 10.**2 # cell per SIN
+	# At least those are needed (3 more to be added depending on SIN|IV or SM)
+	pfit = ['rho_rna','tauE','tauI']
+	# If model is stochastic, add random number seed to params to fit
+	if pdic['SM']:
+		pfit.append('RNseed')
+	# Add the 3 additional (derived) params (e.g., asin,bsin,rho or aiv,biv,beta)
+	pdic,pfit = estimator.adjust_pdic_pfit(pdic.copy(),pfit)
+
+
+# Generate the params class instance
+params = estimator.params(pdic.copy(),pfit)
+# Pack up the dataset for rapid lnprob calculation
+dat = estimator.data_packer(pdic.copy(), data_dir)
+# Generate the model posterior probability class instance
+mcpars['model'] = estimator.estimator(dat, params)
+# Specify the chain_file path and name
+mcpars['chain_file'] = new_chain
+
+if __name__ == '__main__':
+	with multiprocessing.Pool(72) as pool:
+		mcpars['pool'] = pool
+		mcsampler = phymcmc.mcmc.MCSampler( **mcpars )
+		if old_chain is None: # start from random position
+			mcsampler.init_walkers_for_me(logbw=1.0,linbw=0.2,minlnprob=-1000.)
+		else: # start from end of old_chain
+			mcsampler.init_walkers_from_chain(old_chain,replace_stuck_walkers=True)
+		# run MCMC process
+		mcsampler.run_mcmc()
